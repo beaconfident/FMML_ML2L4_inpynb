@@ -1,0 +1,402 @@
+This lab will be based upon t-SNE which is a dimensionality reduction algorithm used to visualize high dimensional datasets.
+
+t-SNE stands for t-Distributed Stochastic Neighbor Embedding. It is an unsupervised, non-linear technique primarily used for data exploration and visualizing high-dimensional data. It was developed by Laurens van der Maatens and Geoffrey Hinton in 2008 (Link to the paper: https://www.jmlr.org/papers/volume9/vandermaaten08a/vandermaaten08a.pdf)
+
+image.png
+
+t-SNE has a tuneable parameter, perplexity which balances attention between the local and global aspects of your data. It is a guess about the number of close neighbors each point has. The perplexity value has a complex effect on the resulting pictures. The original paper says, “The performance of t-SNE is fairly robust to changes in the perplexity, and typical values are between 5 and 50.” But the story is more nuanced than that. Getting the most from t-SNE may mean analyzing multiple plots with different perplexities.
+
+Also the t-SNE algorithm doesn’t always produce similar output on successive runs as there are additional hyperparameters related to the optimization process.
+
+HOW DOES T-SNE WORK??
+The t-SNE algorithm calculates a similarity measure between pairs of instances in the high dimensional space and in the low dimensional space. It then tries to optimize these two similarity measures using a cost function. Let’s break that down into 3 basic steps.
+
+Measure similarities between points in the high dimensional space. Think of a bunch of data points scattered on a 2D space. For each data point (xi) we’ll center a Gaussian distribution over that point. Then we measure the density of all points (xj) under that Gaussian distribution. Then renormalize for all points. This gives us a set of probabilities (Pij) for all points. Those probabilities are proportional to the similarities. All that means is, if data points x1 and x2 have equal values under this gaussian circle then their proportions and similarities are equal and hence you have local similarities in the structure of this high-dimensional space. The Gaussian distribution or circle can be manipulated using what’s called perplexity, which influences the variance of the distribution (circle size) and essentially the number of nearest neighbors.
+
+This step is similar to step 1, but instead of using a Gaussian distribution we use a Student t-distribution with one degree of freedom, which is also known as the Cauchy distribution (See fig below). This gives us a second set of probabilities (Qij) in the low dimensional space. As you can see the Student t-distribution has heavier tails than the normal distribution. The heavy tails allow for better modeling of far apart distances.
+
+The last step is that we want these set of probabilities from the low-dimensional space (Qij) to reflect those of the high dimensional space (Pij) as best as possible. We want the two map structures to be similar. We measure the difference between the probability distributions of the two-dimensional spaces using Kullback-Liebler divergence (KL). Finally, we use gradient descent to minimize our KL cost function.
+
+students_t.jpeg
+
+Scikit-learn has an implementation of t-SNE available which provides a wide variety of tuning parameters for t-SNE, and the most notable ones are:
+
+n_components (default: 2): Dimension of the embedded space.
+perplexity (default: 30): The perplexity is related to the number of nearest neighbors that are used in other manifold learning algorithms. Consider selecting a value between 5 and 50.
+n_iter (default: 1000): Maximum number of iterations for the optimization. Should be at least 250.
+method (default: ‘barnes_hut’): Barnes-Hut approximation runs in O(NlogN) time. method=’exact’ will run on the slower, but exact, algorithm in O(N^2) time.
+
+[ ]
+# numpy.
+import numpy as np
+from numpy import linalg
+from numpy.linalg import norm
+from scipy.spatial.distance import squareform, pdist
+
+# sklearn.
+import sklearn
+from sklearn.manifold import TSNE
+from sklearn.datasets import load_digits
+from sklearn.preprocessing import scale
+
+# Random state.
+RS = 20150101
+
+# matplotlib.
+import matplotlib.pyplot as plt
+import matplotlib.patheffects as PathEffects
+import matplotlib
+%matplotlib inline
+
+# seaborn.
+import seaborn as sns
+sns.set_style('darkgrid')
+sns.set_palette('muted')
+sns.set_context("notebook", font_scale=1.5,
+                rc={"lines.linewidth": 2.5})
+1797 images each of size 8 x 8 loaded using load_digits()
+
+
+[ ]
+digits = load_digits()
+digits.data.shape
+(1797, 64)
+Printing some images from the dataset
+
+
+[ ]
+nrows, ncols = 2, 5
+plt.figure(figsize=(6,3))
+plt.gray()
+for i in range(ncols * nrows):
+    ax = plt.subplot(nrows, ncols, i + 1)
+    ax.matshow(digits.images[i,...])
+    plt.xticks([]); plt.yticks([])
+    plt.title(digits.target[i])
+
+
+[ ]
+# We first reorder the data points according to the handwritten numbers.
+X = np.vstack([digits.data[digits.target==i]
+               for i in range(10)])
+y = np.hstack([digits.target[digits.target==i]
+               for i in range(10)])
+Now using TSNE to fit the dataset with the default values.
+n_components : 2
+perplexity : 30
+n_iter : 1000
+method : ‘barnes_hut’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS).fit_transform(X)
+Visualizing the data in the projected space
+
+[ ]
+def scatter(x, colors):
+    # We choose a color palette with seaborn.
+    palette = np.array(sns.color_palette("hls", 10))
+
+    # We create a scatter plot.
+    f = plt.figure(figsize=(8, 8))
+    ax = plt.subplot(aspect='equal')
+    sc = ax.scatter(x[:,0], x[:,1], lw=0, s=40,
+                    c=palette[colors.astype(int)])
+    plt.xlim(-25, 25)
+    plt.ylim(-25, 25)
+    ax.axis('off')
+    ax.axis('tight')
+
+    # We add the labels for each digit.
+    txts = []
+    for i in range(10):
+        # Position of each label.
+        xtext, ytext = np.median(x[colors == i, :], axis=0)
+        txt = ax.text(xtext, ytext, str(i), fontsize=24)
+        txt.set_path_effects([
+            PathEffects.Stroke(linewidth=5, foreground="w"),
+            PathEffects.Normal()])
+        txts.append(txt)
+    plt.show()
+
+    return f, ax, sc
+
+scatter(digits_proj, y)
+
+Tweaking some of the hyperparameters to better understand their role
+Changing the PERPLEXITY values
+image.png
+
+With perplexity values in the range (5 - 50) suggested by van der Maaten & Hinton, the diagrams do show these clusters, although with very different shapes. Outside that range, things get a little weird. With perplexity 2, local variations dominate. The image for perplexity 100, with merged clusters, illustrates a pitfall: for the algorithm to operate properly, the perplexity really should be smaller than the number of points. Implementations can give unexpected behavior otherwise.
+
+n_components : 2
+perplexity : 5
+n_iter : 1000
+method : ‘barnes_hut’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS, perplexity=5).fit_transform(X)
+
+scatter(digits_proj, y)
+
+We can see that there are local clusters within the same number group as well. This is happening as the perplexity being at 5, allows the local neighbourhood to dominate. Let us now see what happens if we increase the perplexity to 100, thereby increasing global impact.
+
+n_components : 2
+perplexity : 100
+n_iter : 1000
+method : ‘barnes_hut’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS, perplexity=100).fit_transform(X)
+
+scatter(digits_proj, y)
+
+The general structure of the plot remained similar to the one with perplexity = 30 (default), but on careful observation you can observe many data points not being part of the group they are supposed to be in. This is because of the large number of points considered for the neighbourhood (as perplexity value = 100 is higher), thereby allowing 2 data points from different groups to end up closer.
+
+Changing the NUMBER OF ITERATIONS
+image.png
+
+The images above show five different runs at perplexity 30. The first four were stopped before stability. After 10, 20, 60, and 120 steps you can see layouts with seeming 1-dimensional and even pointlike images of the clusters. If you see a t-SNE plot with strange “pinched” shapes, chances are the process was stopped too early. Unfortunately, there’s no fixed number of steps that yields a stable result. Different data sets can require different numbers of iterations to converge.
+
+The most important thing is to iterate until reaching a stable configuration.
+
+n_components : 2
+perplexity : 30
+n_iter : 250
+method : ‘barnes_hut’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS, n_iter=250).fit_transform(X)
+
+scatter(digits_proj, y)
+
+As can be seen from the figure above, stopping the optimization earlier (in 250 iterations) resulted in a suboptimal clustering of the groups.
+
+Let us now see how the results are affected if t-SNE is run for larger number of iterations
+
+n_components : 2
+perplexity : 30
+n_iter : 5000
+method : ‘barnes_hut’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS, n_iter=5000).fit_transform(X)
+
+scatter(digits_proj, y)
+
+Running for larger number of iterations more or less resulted in the same plot as the optimization had nearly converged till the default 1000 iterations. However the density of the clusters has increased.
+
+Changing the method to EXACT
+The barnes-hut method takes O(NlogN) time, whereas the exact method takes O(N^2) time. Notice the increase in the execution time while running the cell below.
+
+n_components : 2
+perplexity : 30
+n_iter : 1000
+method : ‘exact’
+
+[ ]
+digits_proj = TSNE(init="pca", random_state=RS, method='exact').fit_transform(X)
+
+scatter(digits_proj, y)
+
+EXERCISE
+Try out different perplexity and iteration values to better appreciate the concepts taught.
+
+You can modify the code in the cell below to check the resultant plots.
+
+
+[ ]
+###############################################################
+###### MODIFY THE VALUES FOR THE HYPERPARAMETERS BELOW ########
+
+perplexity_value = 2
+number_iterations = 1000
+method = "barnes_hut"
+
+###############################################################
+
+digits_proj = TSNE(init="pca", random_state=RS, n_iter=number_iterations, perplexity=perplexity_value, method=method).fit_transform(X)
+scatter(digits_proj, y)
+
+Exercise:
+Now that you understand t-SNE a bit better, can you point out some differences between PCA and t-SNE. What are the advantages/disadvantages of one over the other?
+Pointers:
+a. Which of the two algorithms is linear and which one is non-linear?
+To determine whether an algorithm is linear or non-linear, we need to look at the relationship between the input size and the computational steps required by the algorithm.
+
+Linear Algorithm: An algorithm is considered linear if the time complexity of the algorithm is 
+𝑂
+(
+𝑛
+)
+O(n), where 
+𝑛
+n is the size of the input. This means that the computational steps increase proportionally with the size of the input.
+
+Non-linear Algorithm: An algorithm is considered non-linear if the time complexity is something other than 
+𝑂
+(
+𝑛
+)
+O(n), such as 
+𝑂
+(
+𝑛
+2
+)
+O(n 
+2
+ ), 
+𝑂
+(
+log
+⁡
+𝑛
+)
+O(logn), 
+𝑂
+(
+𝑛
+log
+⁡
+𝑛
+)
+O(nlogn), etc. This means the computational steps do not increase proportionally with the size of the input.
+b. How does the non-linearity in one of these two algorithms help in capturing certain data sets?
+Non-linearity in an algorithm often allows it to capture and model more complex relationships within data sets. Here's how non-linearity can help:
+
+Handling Complex Patterns: Linear algorithms, such as linear regression, assume a straight-line relationship between input variables and output. This assumption can be too simplistic for many real-world data sets where relationships between variables are often more complex. Non-linear algorithms, on the other hand, can capture intricate patterns and interactions among features.
+
+Flexibility: Non-linear algorithms can fit a wider variety of shapes and patterns in the data. For example, decision trees, neural networks, and support vector machines with non-linear kernels can model interactions between features and capture the underlying structure of the data more effectively than linear models.
+
+Feature Interactions: In many data sets, the effect of one feature on the target variable may depend on the value of another feature. Non-linear algorithms can naturally model such interactions without the need for manually creating interaction terms, as is often required in linear models.
+
+Real-World Applications: Many phenomena in the real world are inherently non-linear. For example, in image recognition, natural language processing, and complex financial modeling, the relationships between inputs and outputs are rarely linear. Non-linear algorithms are better suited to these applications because they can learn and generalize from the non-linear relationships present in the data.
+
+Here are a few examples of non-linear algorithms and how they capture data sets:
+
+Decision Trees: These algorithms split the data into subsets based on feature values, which can result in a tree-like model of decisions. This approach is inherently non-linear and can model complex relationships by capturing interactions between features.
+
+Neural Networks: These algorithms use layers of interconnected nodes (neurons) to model data. The non-linear activation functions used in neural networks allow them to learn complex patterns and make them highly effective for tasks such as image and speech recognition.
+
+Support Vector Machines (with non-linear kernels): SVMs can use kernel functions to transform the input data into a higher-dimensional space where it becomes easier to separate the data points using a hyperplane. This non-linear transformation allows SVMs to capture complex patterns in the data.
+
+In summary, non-linearity in algorithms helps in capturing and modeling complex, real-world relationships in data sets, making them more powerful and versatile for a wide range of applications.
+c. PCA is known to keep points which were further apart in the higher dimension, far apart in the lower dimension as well. Does t-SNE do the same? Or does it try to preserve local neighbourhood?
+PCA (Principal Component Analysis) and t-SNE (t-distributed Stochastic Neighbor Embedding) are both dimensionality reduction techniques, but they serve different purposes and preserve different types of structures in the data.
+
+PCA:
+
+Global Structure: PCA is a linear dimensionality reduction technique that projects the data onto a lower-dimensional space while preserving as much of the variance (spread) in the data as possible. It does this by finding the principal components, which are the directions of maximum variance in the data. As a result, points that are far apart in the high-dimensional space tend to remain far apart in the lower-dimensional space. PCA is good at preserving the global structure of the data.
+Linearity: Since PCA is a linear method, it can struggle with capturing non-linear relationships in the data.
+t-SNE:
+
+Local Structure: t-SNE, on the other hand, is a non-linear dimensionality reduction technique that focuses on preserving the local structure of the data. It tries to ensure that points that are close together in the high-dimensional space remain close together in the lower-dimensional space, effectively preserving local neighborhoods.
+Non-linearity: t-SNE is particularly effective at capturing complex, non-linear relationships in the data. It does this by minimizing the divergence between two probability distributions: one that represents pairwise similarities of points in the high-dimensional space and another that represents pairwise similarities of points in the low-dimensional space.
+Global Structure: While t-SNE excels at preserving local relationships, it does not preserve the global structure as well as PCA does. Points that are far apart in the high-dimensional space might not be far apart in the low-dimensional space when using t-SNE.
+Summary:
+PCA: Preserves global structure and variance. Points far apart in high-dimensional space tend to remain far apart in low-dimensional space.
+t-SNE: Preserves local neighborhoods. Focuses on keeping close points close, but may not preserve the global structure, meaning points far apart in high-dimensional space might not remain far apart in low-dimensional space.
+In conclusion, t-SNE is primarily designed to preserve local neighborhoods rather than maintaining global distances.
+d. Can you comment on which one of the two is computationally more expensive?
+
+How does the computational complexity and runtime of t-SNE scale with dataset size and dimensionality?
+
+What are some limitations or potential pitfalls to be aware of when using t-SNE? (tell atleast 3)
+Computational Expense Comparison
+PCA (Principal Component Analysis) is computationally less expensive compared to t-SNE (t-distributed Stochastic Neighbor Embedding). Here's a detailed analysis:
+
+PCA:
+
+Complexity: 
+𝑂
+(
+𝑚
+𝑛
+2
++
+𝑛
+3
+)
+O(mn 
+2
+ +n 
+3
+ ) where 
+𝑚
+m is the number of data points and 
+𝑛
+n is the number of features.
+Runtime: Relatively fast, especially with efficient implementations like Singular Value Decomposition (SVD).
+t-SNE:
+
+Complexity: Generally 
+𝑂
+(
+𝑚
+2
+)
+O(m 
+2
+ ) for pairwise distance computations, and 
+𝑂
+(
+𝑚
+log
+⁡
+𝑚
+)
+O(mlogm) for optimization with techniques like Barnes-Hut t-SNE.
+Runtime: Much slower, especially for large datasets due to the complexity of pairwise calculations and iterative optimization.
+Scaling of t-SNE with Dataset Size and Dimensionality
+Pairwise Similarities Calculation: The complexity is 
+𝑂
+(
+𝑚
+2
+)
+O(m 
+2
+ ), where 
+𝑚
+m is the number of data points. This becomes computationally expensive as the number of data points increases.
+Optimization: Involves iterative gradient descent which can also be computationally intensive. Techniques like Barnes-Hut t-SNE reduce this to 
+𝑂
+(
+𝑚
+log
+⁡
+𝑚
+)
+O(mlogm).
+Dimensionality: While t-SNE primarily focuses on reducing high-dimensional data to 2D or 3D, the initial pairwise calculations still depend on the original dimensionality. High-dimensional data can slow down the computation, though not as significantly as the number of data points.
+Limitations and Potential Pitfalls of t-SNE
+Computational Expense:
+
+High Computational Cost: As mentioned, t-SNE can be very slow for large datasets due to its 
+𝑂
+(
+𝑚
+2
+)
+O(m 
+2
+ ) pairwise similarity calculations and iterative optimization process.
+Scalability Issues: t-SNE is not well-suited for extremely large datasets unless techniques like Barnes-Hut or approximations are used, which can still be computationally demanding.
+Reproducibility:
+
+Random Initialization: t-SNE often starts with random initialization which can lead to different results for different runs, making it less reproducible unless a random seed is fixed.
+Sensitivity to Parameters: t-SNE's performance and results can be sensitive to the choice of perplexity, learning rate, and other hyperparameters, requiring careful tuning for consistent results.
+Interpretation:
+
+Local Structure Preservation: t-SNE focuses on preserving local neighborhoods at the expense of global structure. This means that while local clusters might be accurately represented, the distances between different clusters might not be meaningful.
+Misleading Visualizations: Because t-SNE can distort the global structure, interpreting the distances between clusters in a t-SNE plot can be misleading. Clusters that appear close together in the 2D plot might not be close in high-dimensional space.
+Parameter Sensitivity:
+
+Perplexity: The choice of perplexity (a parameter related to the number of nearest neighbors) can significantly impact the result. A perplexity that is too low or too high can either oversimplify or overcomplicate the neighborhood relationships.
+Learning Rate: The learning rate also affects the convergence of t-SNE. An inappropriate learning rate can lead to poor embeddings.
+Conclusion
+While t-SNE is a powerful tool for visualizing high-dimensional data and preserving local structures, it is computationally expensive and comes with several limitations, including sensitivity to parameters, potential issues with reproducibility, and difficulties in interpreting the global structure of the data. PCA, being computationally less intensive, is better suited for quick dimensionality reduction, especially for larger datasets, though it primarily preserves global structure and linear relationships.
+Some interesting references:
+https://blog.paperspace.com/dimension-reduction-with-t-sne/
+https://towardsdatascience.com/an-introduction-to-t-sne-with-python-example-5a3a293108d1
+https://distill.pub/2016/misread-tsne/
